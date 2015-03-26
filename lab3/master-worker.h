@@ -12,7 +12,18 @@
 // millisecond
 #define MASTER_REQUEST_WAIT_TIME 1 
 #define BACKUP_MASTER_REQUEST_WAIT_TIME 1
+#define MASTER_FAILURE_TIMEOUT 1000
+#define WORKER_FAILURE_TIMEOUT 3000
 
+// TAG
+#define TAG_WORKER_STACK_H 800
+#define TAG_WORKER_STACK_DATA 801
+#define TAG_JOB_STACK_H 802
+#define TAG_JOB_STACK_DATA 803
+#define TAG_WORKER_STATUS 804
+#define TAG_FINISHED_COUNT 805
+#define TAG_STOPPED_WORKER_COUNT 806
+#define TAG_COLLECTED_RESULTS 807
 
 #include <thread>
 #include "data-stack.h"
@@ -157,26 +168,26 @@ private:
         // send worker stack        
         h = workerStack_.getHeight();
         data = workerStack_.getData();
-        MPI::COMM_WORLD.Isend(&h, 1, MPI::INT, rankMasterBackup_, 800);
-        MPI::COMM_WORLD.Isend(data, size_, MPI::INT, rankMasterBackup_, 801);
+        MPI::COMM_WORLD.Isend(&h, 1, MPI::INT, rankMasterBackup_, TAG_WORKER_STACK_H);
+        MPI::COMM_WORLD.Isend(data, size_, MPI::INT, rankMasterBackup_, TAG_WORKER_STACK_DATA);
 
         // send job stack
         h = jobStack_.getHeight();
         data = jobStack_.getData();
-        MPI::COMM_WORLD.Isend(&h, 1, MPI::INT, rankMasterBackup_, 802);
-        MPI::COMM_WORLD.Isend(data, jobSize_, MPI::INT, rankMasterBackup_, 803);
+        MPI::COMM_WORLD.Isend(&h, 1, MPI::INT, rankMasterBackup_, TAG_JOB_STACK_H);
+        MPI::COMM_WORLD.Isend(data, jobSize_, MPI::INT, rankMasterBackup_, TAG_JOB_STACK_DATA);
 
         // send worker status
-        MPI::COMM_WORLD.Isend(&workerStatus_[0], 1*sizeof(WorkerStatus)*size_, MPI::BYTE, rankMasterBackup_, 804);
+        MPI::COMM_WORLD.Isend(&workerStatus_[0], 1*sizeof(WorkerStatus)*size_, MPI::BYTE, rankMasterBackup_, TAG_WORKER_STATUS);
 
-        // send resultCount
-        MPI::COMM_WORLD.Isend(&finishedCount_, 1, MPI::INT, rankMasterBackup_, 805);
+        // send finished count
+        MPI::COMM_WORLD.Isend(&finishedCount_, 1, MPI::INT, rankMasterBackup_, TAG_FINISHED_COUNT);
 
         // send result
-        MPI::COMM_WORLD.Isend(&collectedResults_[0], 1*sizeof(T_RESULT)*jobSize_, MPI::BYTE, rankMasterBackup_, 806);
+        MPI::COMM_WORLD.Isend(&collectedResults_[0], 1*sizeof(T_RESULT)*jobSize_, MPI::BYTE, rankMasterBackup_, TAG_COLLECTED_RESULTS);
 
         // send stoppedWorkerCount
-        MPI::COMM_WORLD.Isend(&stoppedWorkerCount_, 1, MPI::INT, rankMasterBackup_, 807);
+        MPI::COMM_WORLD.Isend(&stoppedWorkerCount_, 1, MPI::INT, rankMasterBackup_, TAG_STOPPED_WORKER_COUNT);
     }
 
     /**
@@ -190,18 +201,18 @@ private:
         unsigned long lastBackupTime = 0;
         bool masterFail = false;
         while (!masterFail) {
-            reqWorkerHeight = MPI::COMM_WORLD.Irecv(&(workerStack_.h_), 1, MPI::INT, rankMaster_, 800);
-            reqWorkerData = MPI::COMM_WORLD.Irecv(workerStack_.data_, size_, MPI::INT, rankMaster_, 801);
+            reqWorkerHeight = MPI::COMM_WORLD.Irecv(&(workerStack_.h_), 1, MPI::INT, rankMaster_, TAG_WORKER_STACK_H);
+            reqWorkerData = MPI::COMM_WORLD.Irecv(workerStack_.data_, size_, MPI::INT, rankMaster_, TAG_WORKER_STACK_DATA);
 
-            reqJobHeight = MPI::COMM_WORLD.Irecv(&(jobStack_.h_), 1, MPI::INT, rankMaster_, 802);
-            reqJobData = MPI::COMM_WORLD.Irecv(jobStack_.data_, jobSize_, MPI::INT, rankMaster_, 803);
+            reqJobHeight = MPI::COMM_WORLD.Irecv(&(jobStack_.h_), 1, MPI::INT, rankMaster_, TAG_JOB_STACK_H);
+            reqJobData = MPI::COMM_WORLD.Irecv(jobStack_.data_, jobSize_, MPI::INT, rankMaster_, TAG_JOB_STACK_DATA);
 
-            reqWorkerStatusData = MPI::COMM_WORLD.Irecv(&workerStatus_[0], 1*sizeof(WorkerStatus)*size_, MPI::BYTE, rankMaster_, 804);
+            reqWorkerStatusData = MPI::COMM_WORLD.Irecv(&workerStatus_[0], 1*sizeof(WorkerStatus)*size_, MPI::BYTE, rankMaster_, TAG_WORKER_STATUS);
             
-            reqFinishedCount = MPI::COMM_WORLD.Irecv(&finishedCount_, 1, MPI::INT, rankMaster_, 805);
-            reqCollectedResults = MPI::COMM_WORLD.Irecv(&collectedResults_[0], 1*sizeof(T_RESULT)*jobSize_, MPI::BYTE, rankMaster_, 806);
+            reqFinishedCount = MPI::COMM_WORLD.Irecv(&finishedCount_, 1, MPI::INT, rankMaster_, TAG_FINISHED_COUNT);
+            reqCollectedResults = MPI::COMM_WORLD.Irecv(&collectedResults_[0], 1*sizeof(T_RESULT)*jobSize_, MPI::BYTE, rankMaster_, TAG_COLLECTED_RESULTS);
 
-            reqStoppedWorkerCount = MPI::COMM_WORLD.Irecv(&stoppedWorkerCount_, 1, MPI::INT, rankMaster_, 807);
+            reqStoppedWorkerCount = MPI::COMM_WORLD.Irecv(&stoppedWorkerCount_, 1, MPI::INT, rankMaster_, TAG_STOPPED_WORKER_COUNT);
 
             while (!reqWorkerHeight.Test() || !reqWorkerData.Test() ||
                    !reqJobHeight.Test() || !reqJobData.Test() ||
@@ -212,7 +223,7 @@ private:
                 
                 std::chrono::milliseconds waitime(BACKUP_MASTER_REQUEST_WAIT_TIME); 
                 std::this_thread::sleep_for(waitime);
-                if (lastBackupTime != 0 && getCurrentMilliseconds() - lastBackupTime > 1000) {
+                if (lastBackupTime != 0 && getCurrentMilliseconds() - lastBackupTime > MASTER_FAILURE_TIMEOUT) {
                     DBGMSG(cout, "Switching to backup-master node");
                     masterFail = true;
                     break;
@@ -291,7 +302,7 @@ private:
         
                 for (int i=0; i<size_; i++) {
                     int diff = getCurrentMilliseconds() - workerStatus_[i].lastResponseTime;
-                    if (i != rankMaster_ && i != rankMasterBackup_ && workerStatus_[i].isAlive && workerStatus_[i].curJob != -1 && diff > 3000) {
+                    if (i != rankMaster_ && i != rankMasterBackup_ && workerStatus_[i].isAlive && workerStatus_[i].curJob != -1 && diff > WORKER_FAILURE_TIMEOUT) {
                         DBGMSG(cout, "[test] worker " << i << " is offline, not reponding for " << diff << " , push back its job " << workerStatus_[i].curJob);
                         stoppedWorkerCount_++;
                         killWorker(i);
