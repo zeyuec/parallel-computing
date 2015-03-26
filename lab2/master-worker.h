@@ -23,7 +23,7 @@ public:
         MPI::Init(argc_, argv_);
         size_ = MPI::COMM_WORLD.Get_size();
         rank_ = MPI::COMM_WORLD.Get_rank();
-        
+
         // set rank
         rankMaster_ = 0;
         rankFirstWorker_ = 1;
